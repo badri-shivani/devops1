@@ -1,48 +1,48 @@
 import streamlit as st
+import fitz  # PyMuPDF
 from transformers import pipeline
 
-# Load the model once using session state
+# Load the question-answering pipeline
 @st.cache_resource
 def load_model():
-    return pipeline(
-        "text-generation",
-        model="EleutherAI/gpt-neo-1.3B",
-        device=-1,  # Set to 0 if you have a GPU locally
-    )
+    return pipeline("question-answering", model="distilbert-base-uncased-distilled-squad")
 
-model = load_model()
+qa_model = load_model()
 
-# Title and subtitle
-st.title("🤖 DAA & OS GPT - Free Tutor")
-st.subheader("Ask anything about Design and Analysis of Algorithms or Operating Systems.")
+# Load the PDF once
+@st.cache_data
+def load_pdf_notes():
+    try:
+        with fitz.open("notes.pdf") as doc:
+            text = ""
+            for page in doc:
+                text += page.get_text()
+            return text
+    except Exception as e:
+        st.error(f"Could not load PDF: {e}")
+        return ""
 
-# Input box
-user_input = st.text_area("💬 Ask a question:", height=100)
+notes_text = load_pdf_notes()
 
-# Answer generation
+# Streamlit UI
+st.title("🤖 DevOps / DAA & OS Tutor Chatbot from Notes")
+st.subheader("Ask a question, and I’ll answer from the uploaded PDF notes.")
+
+user_input = st.text_area("💬 Ask your question here:")
+
 if st.button("Get Answer"):
-    if user_input.strip() == "":
+    if not user_input.strip():
         st.warning("Please enter a question.")
+    elif not notes_text.strip():
+        st.error("No text loaded from notes.pdf. Please upload a valid PDF.")
     else:
-        prompt = (
-            "You are an expert tutor for B.Tech students in Design and Analysis of Algorithms and Operating Systems.\n"
-            f"Q: {user_input}\nA:"
-        )
-        with st.spinner("Thinking..."):
-            response = model(
-                prompt,
-                max_length=150,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.95,
-                top_k=50,
-                num_return_sequences=1
-            )[0]["generated_text"]
-            
-            answer = response.split("A:")[-1].strip()
-
-            if not answer:
-                st.error("Hmm... couldn't generate a helpful response. Try rephrasing your question.")
-            else:
+        with st.spinner("Searching your notes..."):
+            try:
+                result = qa_model({
+                    "question": user_input,
+                    "context": notes_text
+                })
                 st.success("Answer:")
-                st.write(answer)
+                st.write(result["answer"])
+            except Exception as e:
+                st.error(f"Error: {e}")
